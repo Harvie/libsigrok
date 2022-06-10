@@ -297,6 +297,12 @@ src_libdrivers_la_SOURCES += \
 	src/hardware/demo/protocol.c \
 	src/hardware/demo/api.c
 endif
+if HW_SDL2
+src_libdrivers_la_SOURCES += \
+	src/hardware/sdl2/protocol.h \
+	src/hardware/sdl2/protocol.c \
+	src/hardware/sdl2/api.c
+endif
 if HW_DREAMSOURCELAB_DSLOGIC
 src_libdrivers_la_SOURCES += \
 	src/hardware/dreamsourcelab-dslogic/protocol.h \
