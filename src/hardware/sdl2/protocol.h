@@ -29,7 +29,7 @@
 #include <libsigrok/libsigrok.h>
 #include "libsigrok-internal.h"
 
-#define LOG_PREFIX "link-mso19"
+#define LOG_PREFIX "sdl2logprefix"
 
 #define USB_VENDOR		"3195"
 #define USB_PRODUCT		"f190"
@@ -85,49 +85,89 @@ struct mso_prototrig {
 };
 
 struct dev_context {
-	/* info */
-	uint8_t hwmodel;
-	uint8_t hwrev;
-	struct sr_serial_dev_inst *serial;
-//      uint8_t num_sample_rates;
-	/* calibration */
-	double vbit;
-	uint16_t dac_offset;
-	uint16_t offset_range;
+	const struct fx2lafw_profile *profile;
+	GSList *enabled_analog_channels;
+	/*
+	 * Since we can't keep track of an fx2lafw device after upgrading
+	 * the firmware (it renumerates into a different device address
+	 * after the upgrade) this is like a global lock. No device will open
+	 * until a proper delay after the last device was upgraded.
+	 */
+	int64_t fw_updated;
+
+	const uint64_t *samplerates;
+	int num_samplerates;
+
+	uint64_t cur_samplerate;
 	uint64_t limit_samples;
-	uint64_t num_samples;
+	uint64_t capture_ratio;
 
-	/* register cache */
-	uint8_t ctlbase1;
-	uint8_t ctlbase2;
+	gboolean trigger_fired;
+	gboolean acq_aborted;
+	gboolean sample_wide;
+	struct soft_trigger_logic *stl;
 
-	uint8_t la_threshold;
-	uint64_t cur_rate;
-	uint8_t dso_probe_attn;
-	int8_t use_trigger;
-	uint8_t trigger_chan;
-	uint8_t trigger_slope;
-	uint8_t trigger_outsrc;
-	uint8_t trigger_state;
-	uint8_t trigger_holdoff[2];
-	uint8_t la_trigger;
-	uint8_t la_trigger_mask;
-	double dso_trigger_voltage;
-	uint16_t dso_trigger_width;
-	struct mso_prototrig protocol_trigger;
-	uint16_t buffer_n;
-	char buffer[4096];
+	unsigned int sent_samples;
+	int submitted_transfers;
+	int empty_transfer_count;
+
+	unsigned int num_transfers;
+	struct libusb_transfer **transfers;
+	struct sr_context *ctx;
+	void (*send_data_proc)(struct sr_dev_inst *sdi,
+		uint8_t *data, size_t length, size_t sample_width);
+	uint8_t *logic_buffer;
+	float *analog_buffer;
+
+
+
+
+
+// stary mso19 ---------------------------
+
+       /* info */
+       uint8_t hwmodel;
+       uint8_t hwrev;
+       struct sr_serial_dev_inst *serial;
+//      uint8_t num_sample_rates;
+       /* calibration */
+       double vbit;
+       uint16_t dac_offset;
+       uint16_t offset_range;
+
+       uint64_t num_samples;
+
+       /* register cache */
+       uint8_t ctlbase1;
+       uint8_t ctlbase2;
+
+       uint8_t la_threshold;
+       uint64_t cur_rate;
+       uint8_t dso_probe_attn;
+       int8_t use_trigger;
+       uint8_t trigger_chan;
+       uint8_t trigger_slope;
+       uint8_t trigger_outsrc;
+       uint8_t trigger_state;
+       uint8_t trigger_holdoff[2];
+       uint8_t la_trigger;
+       uint8_t la_trigger_mask;
+       double dso_trigger_voltage;
+       uint16_t dso_trigger_width;
+       struct mso_prototrig protocol_trigger;
+       uint16_t buffer_n;
+       char buffer[4096];
+
 };
 
 SR_PRIV int mso_parse_serial(const char *iSerial, const char *iProduct,
 			     struct dev_context *ctx);
-SR_PRIV int mso_check_trigger(struct sr_serial_dev_inst *serial,
-			      uint8_t * info);
+//SR_PRIV int mso_check_trigger(struct sr_serial_dev_inst *serial, uint8_t * info);
 SR_PRIV int mso_reset_adc(struct sr_dev_inst *sdi);
 SR_PRIV int mso_clkrate_out(struct sr_serial_dev_inst *serial, uint16_t val);
 SR_PRIV int mso_configure_rate(const struct sr_dev_inst *sdi, uint32_t rate);
 SR_PRIV int mso_receive_data(int fd, int revents, void *cb_data);
-SR_PRIV int mso_configure_trigger(const struct sr_dev_inst *sdi);
+//SR_PRIV int mso_configure_trigger(const struct sr_dev_inst *sdi);
 SR_PRIV int mso_configure_threshold_level(const struct sr_dev_inst *sdi);
 SR_PRIV int mso_read_buffer(struct sr_dev_inst *sdi);
 SR_PRIV int mso_arm(const struct sr_dev_inst *sdi);

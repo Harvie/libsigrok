@@ -38,8 +38,8 @@ SR_PRIV int mso_send_control_message(struct sr_serial_dev_inst *serial,
 
 	ret = SR_ERR;
 
-	if (serial->fd < 0)
-		goto ret;
+	//if (serial->fd < 0)
+	//	goto ret;
 
 	buf = g_malloc(s);
 
@@ -69,6 +69,7 @@ ret:
 	return ret;
 }
 
+/*
 SR_PRIV int mso_configure_trigger(const struct sr_dev_inst *sdi)
 {
 	struct dev_context *devc = sdi->priv;
@@ -125,9 +126,9 @@ SR_PRIV int mso_configure_trigger(const struct sr_dev_inst *sdi)
 			   devc->dso_trigger_width /
 			   SR_HZ_TO_NS(devc->cur_rate));
 
-	/* Select the SPI/I2C trigger config bank */
+	// Select the SPI/I2C trigger config bank
 	ops[7] = mso_trans(REG_CTL2, (devc->ctlbase2 | BITS_CTL2_BANK(2)));
-	/* Configure the SPI/I2C protocol trigger */
+	// Configure the SPI/I2C protocol trigger
 	ops[8] = mso_trans(REG_PT_WORD(0), devc->protocol_trigger.word[0]);
 	ops[9] = mso_trans(REG_PT_WORD(1), devc->protocol_trigger.word[1]);
 	ops[10] = mso_trans(REG_PT_WORD(2), devc->protocol_trigger.word[2]);
@@ -137,11 +138,12 @@ SR_PRIV int mso_configure_trigger(const struct sr_dev_inst *sdi)
 	ops[14] = mso_trans(REG_PT_MASK(2), devc->protocol_trigger.mask[2]);
 	ops[15] = mso_trans(REG_PT_MASK(3), devc->protocol_trigger.mask[3]);
 	ops[16] = mso_trans(REG_PT_SPIMODE, devc->protocol_trigger.spimode);
-	/* Select the default config bank */
+	// Select the default config bank
 	ops[17] = mso_trans(REG_CTL2, devc->ctlbase2);
 
 	return mso_send_control_message(devc->serial, ARRAY_AND_SIZE(ops));
 }
+*/
 
 SR_PRIV int mso_configure_threshold_level(const struct sr_dev_inst *sdi)
 {
@@ -325,6 +327,7 @@ SR_PRIV int mso_configure_rate(const struct sr_dev_inst *sdi, uint32_t rate)
 	return ret;
 }
 
+/*
 SR_PRIV int mso_check_trigger(struct sr_serial_dev_inst *serial, uint8_t *info)
 {
 	uint16_t ops[] = { mso_trans(REG_TRIGGER, 0) };
@@ -336,7 +339,7 @@ SR_PRIV int mso_check_trigger(struct sr_serial_dev_inst *serial, uint8_t *info)
 		return ret;
 
 	uint8_t buf = 0;
-	if (serial_read(serial, &buf, 1) != 1)	/* FIXME: Need timeout */
+	if (serial_read(serial, &buf, 1) != 1)	// FIXME: Need timeout
 		ret = SR_ERR;
 	if (!info)
 		*info = buf;
@@ -344,6 +347,7 @@ SR_PRIV int mso_check_trigger(struct sr_serial_dev_inst *serial, uint8_t *info)
 	sr_dbg("Trigger state is: 0x%x.", *info);
 	return ret;
 }
+*/
 
 SR_PRIV int mso_receive_data(int fd, int revents, void *cb_data)
 {
@@ -356,7 +360,7 @@ SR_PRIV int mso_receive_data(int fd, int revents, void *cb_data)
 	(void)revents;
 
 	uint8_t in[1024];
-	size_t s = serial_read(devc->serial, in, sizeof(in));
+	size_t s = 0; //serial_read(devc->serial, in, sizeof(in));
 
 	if (s <= 0)
 		return FALSE;
@@ -434,16 +438,16 @@ SR_PRIV int mso_configure_channels(const struct sr_dev_inst *sdi)
 			continue;
 
 		int channel_bit = 1 << (ch->index);
-		if (!(ch->trigger))
-			continue;
+		//if (!(ch->trigger))
+		//	continue;
 
 		devc->use_trigger = TRUE;
 		//Configure trigger mask and value.
-		for (tc = ch->trigger; *tc; tc++) {
-			devc->la_trigger_mask &= ~channel_bit;
-			if (*tc == '1')
-				devc->la_trigger |= channel_bit;
-		}
+		//for (tc = ch->trigger; *tc; tc++) {
+		//	devc->la_trigger_mask &= ~channel_bit;
+		//	if (*tc == '1')
+		//		devc->la_trigger |= channel_bit;
+		//}
 	}
 
 	return SR_OK;

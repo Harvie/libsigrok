@@ -21,8 +21,10 @@
 
 #include <config.h>
 #include "protocol.h"
+#include <SDL2/SDL.h>
 
 static const uint32_t drvopts[] = {
+	//SR_CONF_DEMO_DEV,
 	SR_CONF_OSCILLOSCOPE,
 	SR_CONF_LOGIC_ANALYZER,
 };
@@ -30,7 +32,7 @@ static const uint32_t drvopts[] = {
 static const uint32_t devopts[] = {
 	SR_CONF_LIMIT_SAMPLES | SR_CONF_SET,
 	SR_CONF_SAMPLERATE | SR_CONF_GET | SR_CONF_SET | SR_CONF_LIST,
-	SR_CONF_TRIGGER_TYPE | SR_CONF_LIST,
+	SR_CONF_TRIGGER_MATCH | SR_CONF_LIST,
 	SR_CONF_TRIGGER_SLOPE | SR_CONF_SET,
 	SR_CONF_HORIZ_TRIGGERPOS | SR_CONF_SET,
 	SR_CONF_CAPTURE_RATIO | SR_CONF_SET,
@@ -57,124 +59,70 @@ static const char *trigger_slopes[2] = {
 	"r", "f",
 };
 
+static int init(struct sr_dev_driver *di, struct sr_context *sr_ctx) {
+	SDL_Init(SDL_INIT_AUDIO);
+	return std_init(di, sr_ctx);
+}
+
+static int cleanup(const struct sr_dev_driver *di) {
+	SDL_Quit();
+	return std_cleanup(di);
+}
+
 static GSList *scan(struct sr_dev_driver *di, GSList *options)
 {
-	int i;
-	GSList *devices = NULL;
-	const char *conn = NULL;
-	const char *serialcomm = NULL;
-	GSList *l;
-	struct sr_config *src;
-	struct udev *udev;
-	int chtype;
+	(void)options;
 
-	for (l = options; l; l = l->next) {
-		src = l->data;
-		switch (src->key) {
-		case SR_CONF_CONN:
-			conn = g_variant_get_string(src->data, NULL);
-			break;
-		case SR_CONF_SERIALCOMM:
-			serialcomm = g_variant_get_string(src->data, NULL);
-			break;
-		}
-	}
-	if (!conn)
-		conn = SERIALCONN;
-	if (!serialcomm)
-		serialcomm = SERIALCOMM;
+        struct dev_context *devc;
+        struct sr_dev_inst *sdi;
+        struct sr_channel *ch;
+        struct sr_channel_group *cg, *acg;
+/*
+        struct sr_config *src;
+        struct analog_gen *ag;
+        GSList *l;
+        int num_logic_channels, num_analog_channels, pattern, i;
+        uint64_t limit_frames;
+        char channel_name[16];
 
-	udev = udev_new();
-	if (!udev) {
-		sr_err("Failed to initialize udev.");
-	}
+        num_logic_channels = DEFAULT_NUM_LOGIC_CHANNELS;
+        num_analog_channels = DEFAULT_NUM_ANALOG_CHANNELS;
+        limit_frames = DEFAULT_LIMIT_FRAMES;
+*/
 
-	struct udev_enumerate *enumerate = udev_enumerate_new(udev);
-	udev_enumerate_add_match_subsystem(enumerate, "usb-serial");
-	udev_enumerate_scan_devices(enumerate);
-	struct udev_list_entry *devs = udev_enumerate_get_list_entry(enumerate);
-	struct udev_list_entry *dev_list_entry;
-	for (dev_list_entry = devs;
-	     dev_list_entry != NULL;
-	     dev_list_entry = udev_list_entry_get_next(dev_list_entry)) {
-		const char *syspath = udev_list_entry_get_name(dev_list_entry);
-		struct udev_device *dev =
-		    udev_device_new_from_syspath(udev, syspath);
-		const char *sysname = udev_device_get_sysname(dev);
-		struct udev_device *parent =
-		    udev_device_get_parent_with_subsystem_devtype(dev, "usb",
-								  "usb_device");
 
-		if (!parent) {
-			sr_err("Unable to find parent usb device for %s",
-			       sysname);
-			continue;
-		}
+	//Create device instance
+        sdi = g_malloc0(sizeof(struct sr_dev_inst));
+        sdi->status = SR_ST_INACTIVE;
+        sdi->model = g_strdup("SDL2 Soundcard");
 
-		const char *idVendor =
-		    udev_device_get_sysattr_value(parent, "idVendor");
-		const char *idProduct =
-		    udev_device_get_sysattr_value(parent, "idProduct");
-		if (strcmp(USB_VENDOR, idVendor)
-		    || strcmp(USB_PRODUCT, idProduct))
-			continue;
+	//Put driver specific data to driver instance
+        devc = g_malloc0(sizeof(struct dev_context));
+        devc->cur_samplerate = SR_KHZ(200);
+        sdi->priv = devc;
 
-		const char *iSerial =
-		    udev_device_get_sysattr_value(parent, "serial");
-		const char *iProduct =
-		    udev_device_get_sysattr_value(parent, "product");
+        //Create analog channel group
+        acg = g_malloc0(sizeof(struct sr_channel_group));
+        acg->name = g_strdup("Analog");
+        sdi->channel_groups = g_slist_append(sdi->channel_groups, acg);
 
-		char path[32];
-		snprintf(path, sizeof(path), "/dev/%s", sysname);
-		conn = path;
+	//Put new channel to group
+        ch = sr_channel_new(sdi, 1, SR_CHANNEL_ANALOG, TRUE, "channel_name");
+        acg->channels = g_slist_append(acg->channels, ch);
 
-		size_t s = strcspn(iProduct, " ");
-		char product[32];
-		char manufacturer[32];
-		if (s > sizeof(product) ||
-		    strlen(iProduct) - s > sizeof(manufacturer)) {
-			sr_err("Could not parse iProduct: %s.", iProduct);
-			continue;
-		}
-		strncpy(product, iProduct, s);
-		product[s] = 0;
-		strcpy(manufacturer, iProduct + s + 1);
+	//one more channel
+        ch = sr_channel_new(sdi, 2, SR_CHANNEL_ANALOG, TRUE, "another_ch");
+        acg->channels = g_slist_append(acg->channels, ch);
 
-		//Create the device context and set its params
-		struct dev_context *devc;
-		devc = g_malloc0(sizeof(struct dev_context));
 
-		if (mso_parse_serial(iSerial, iProduct, devc) != SR_OK) {
-			sr_err("Invalid iSerial: %s.", iSerial);
-			g_free(devc);
-			return devices;
-		}
+        return std_scan_complete(di, g_slist_append(NULL, sdi));
 
-		char hwrev[32];
-		sprintf(hwrev, "r%d", devc->hwrev);
-		devc->ctlbase1 = 0;
-		devc->protocol_trigger.spimode = 0;
-		for (i = 0; i < 4; i++) {
-			devc->protocol_trigger.word[i] = 0;
-			devc->protocol_trigger.mask[i] = 0xff;
-		}
 
-		devc->serial = sr_serial_dev_inst_new(conn, serialcomm);
 
-		struct sr_dev_inst *sdi = g_malloc0(sizeof(struct sr_dev_inst));
-		sdi->status = SR_ST_INACTIVE;
-		sdi->vendor = g_strdup(manufacturer);
-		sdi->model = g_strdup(product);
-		sdi->version = g_strdup(hwrev);
-		sdi->priv = devc;
 
-		for (i = 0; i < ARRAY_SIZE(channel_names); i++) {
-			chtype = (i == 0) ? SR_CHANNEL_ANALOG : SR_CHANNEL_LOGIC;
-			sr_channel_new(sdi, i, chtype, TRUE, channel_names[i]);
-		}
-	}
 
-	return std_scan_complete(di, devices);
+
+
 }
 
 static int dev_open(struct sr_dev_inst *sdi)
@@ -184,19 +132,19 @@ static int dev_open(struct sr_dev_inst *sdi)
 
 	devc = sdi->priv;
 
-	if (serial_open(devc->serial, SERIAL_RDWR) != SR_OK)
-		return SR_ERR;
+	//if (serial_open(devc->serial, SERIAL_RDWR) != SR_OK)
+	//	return SR_ERR;
 
 	/* FIXME: discard serial buffer */
-	mso_check_trigger(devc->serial, &devc->trigger_state);
-	sr_dbg("Trigger state: 0x%x.", devc->trigger_state);
+	//mso_check_trigger(devc->serial, &devc->trigger_state);
+	//sr_dbg("Trigger state: 0x%x.", devc->trigger_state);
 
-	ret = mso_reset_adc(sdi);
-	if (ret != SR_OK)
-		return ret;
+	//ret = mso_reset_adc(sdi);
+	//if (ret != SR_OK)
+	//	return ret;
 
-	mso_check_trigger(devc->serial, &devc->trigger_state);
-	sr_dbg("Trigger state: 0x%x.", devc->trigger_state);
+	//mso_check_trigger(devc->serial, &devc->trigger_state);
+	//sr_dbg("Trigger state: 0x%x.", devc->trigger_state);
 
 	//    ret = mso_reset_fsm(sdi);
 	//    if (ret != SR_OK)
@@ -257,9 +205,9 @@ static int config_set(int key, GVariant *data,
 	case SR_CONF_CAPTURE_RATIO:
 		break;
 	case SR_CONF_TRIGGER_SLOPE:
-		if ((idx = std_str_idx(data, ARRAY_AND_SIZE(trigger_slopes))) < 0)
-			return SR_ERR_ARG;
-		devc->trigger_slope = idx;
+		//if ((idx = std_str_idx(data, ARRAY_AND_SIZE(trigger_slopes))) < 0)
+		//	return SR_ERR_ARG;
+		//devc->trigger_slope = idx;
 		break;
 	case SR_CONF_HORIZ_TRIGGERPOS:
 		pos = g_variant_get_double(data);
@@ -288,7 +236,7 @@ static int config_list(int key, GVariant **data,
 	case SR_CONF_SAMPLERATE:
 		*data = std_gvar_samplerates_steps(ARRAY_AND_SIZE(samplerates));
 		break;
-	case SR_CONF_TRIGGER_TYPE:
+	case SR_CONF_TRIGGER_MATCH:
 		*data = g_variant_new_string(TRIGGER_TYPE);
 		break;
 	default:
@@ -332,9 +280,9 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 	if (ret != SR_OK)
 		return ret;
 
-	ret = mso_configure_trigger(sdi);
-	if (ret != SR_OK)
-		return ret;
+	//ret = mso_configure_trigger(sdi);
+	//if (ret != SR_OK)
+	//	return ret;
 
 	/* END of config hardware part */
 	ret = mso_arm(sdi);
@@ -342,13 +290,13 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 		return ret;
 
 	/* Start acquisition on the device. */
-	mso_check_trigger(devc->serial, &devc->trigger_state);
-	ret = mso_check_trigger(devc->serial, NULL);
-	if (ret != SR_OK)
-		return ret;
+	//mso_check_trigger(devc->serial, &devc->trigger_state);
+	//ret = mso_check_trigger(devc->serial, NULL);
+	//if (ret != SR_OK)
+	//	return ret;
 
 	/* Reset trigger state. */
-	devc->trigger_state = 0x00;
+	//devc->trigger_state = 0x00;
 
 	std_session_send_df_header(sdi);
 
@@ -368,22 +316,32 @@ static int dev_acquisition_stop(struct sr_dev_inst *sdi)
 	return SR_OK;
 }
 
-static struct sr_dev_driver link_mso19_driver_info = {
-	.name = "link-mso19",
-	.longname = "Link Instruments MSO-19",
+static struct sr_dev_driver sdl2_driver_info = {
+	.name = "sdl2",
+	.longname = "SoundCard Audio Capture using SDL2",
 	.api_version = 1,
-	.init = std_init,
-	.cleanup = std_cleanup,
+	.init = init,
+	.cleanup = cleanup,
+
+	//scan
 	.scan = scan,
 	.dev_list = std_dev_list,
 	.dev_clear = std_dev_clear,
+
+	//config
 	.config_get = config_get,
 	.config_set = config_set,
 	.config_list = config_list,
+
+	//open
 	.dev_open = dev_open,
 	.dev_close = std_serial_dev_close,
+
+	//acq
 	.dev_acquisition_start = dev_acquisition_start,
 	.dev_acquisition_stop = dev_acquisition_stop,
+
+	//inst
 	.context = NULL,
 };
-SR_REGISTER_DEV_DRIVER(link_mso19_driver_info);
+SR_REGISTER_DEV_DRIVER(sdl2_driver_info);
