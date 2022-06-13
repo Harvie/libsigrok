@@ -203,6 +203,8 @@ static int config_set(int key, GVariant *data,
 
 	(void)cg;
 
+	return SR_OK;
+
 	devc = sdi->priv;
 
 	switch (key) {
@@ -212,8 +214,8 @@ static int config_set(int key, GVariant *data,
 	case SR_CONF_LIMIT_SAMPLES:
 		num_samples = g_variant_get_uint64(data);
 		if (num_samples != 1024) {
-			sr_err("Only 1024 samples are supported.");
-			return SR_ERR_ARG;
+			sr_err("Only 1024 samples are supported. (%d given)", num_samples);
+			//return SR_ERR_ARG;
 		}
 		devc->limit_samples = num_samples;
 		break;
@@ -245,6 +247,7 @@ static int config_set(int key, GVariant *data,
 static int config_list(int key, GVariant **data,
 	const struct sr_dev_inst *sdi, const struct sr_channel_group *cg)
 {
+
 	switch (key) {
 	case SR_CONF_DEVICE_OPTIONS:
 		return STD_CONFIG_LIST(key, data, sdi, cg, NO_OPTS, drvopts, devopts);
@@ -262,6 +265,10 @@ static int config_list(int key, GVariant **data,
 }
 
 SR_PRIV int sdl_prepare_data(int fd, int revents, void *cb_data) {
+	static long int counter=0;
+	counter++;
+	if(counter > 50) return SR_OK;
+
 	struct sr_dev_inst *sdi;
         struct dev_context *devc;
         struct sr_datafeed_packet packet;
@@ -281,13 +288,20 @@ SR_PRIV int sdl_prepare_data(int fd, int revents, void *cb_data) {
 	sdi = cb_data;
 	devc = sdi->priv;
 
-	struct sr_channel_group *lastcg = g_slist_last(sdi->channel_groups);
+	sr_analog_init(&packet_analog, &encoding, &meaning, &spec, 0);
+
+	struct sr_channel_group *lastcg = g_slist_nth_data(sdi->channel_groups, 0);
+	//struct sr_channel *srch = g_slist_nth_data(lastcg->channels, 0);
+	//sr_err("NASEL JSEM %s\n", srch->name);
+
+
+	SDL_AudioFormat sf = AUDIO_S8;
 
 	//encoding
-	encoding.unitsize = 1; //???
-	encoding.is_signed = 1;
-	encoding.is_float = 0;
-	encoding.is_bigendian = 0;
+	encoding.unitsize = SDL_AUDIO_BITSIZE(sf)/8; //???
+	encoding.is_signed = SDL_AUDIO_ISSIGNED(sf);
+	encoding.is_float = SDL_AUDIO_ISFLOAT(sf);
+	encoding.is_bigendian = SDL_AUDIO_ISBIGENDIAN(sf);
 	encoding.digits = 2;
 	encoding.is_digits_decimal = 1;
 	encoding.scale = r_scale;
@@ -301,12 +315,13 @@ SR_PRIV int sdl_prepare_data(int fd, int revents, void *cb_data) {
 	meaning.channels = lastcg->channels;
 
 	//data
-	char data[1024]={6,6,6,6,6,6,6,6,6,6,6,6,6};
+	char data[1024]={60,60,0,0,-60,-60,0,0};
 	packet_analog.data = data;
-	packet_analog.num_samples=1;
+	packet_analog.num_samples=4;
 	packet_analog.encoding = &encoding;
 	packet_analog.meaning = &meaning;
 	packet_analog.spec = &spec;
+
 
 	//packet
         packet.type = SR_DF_ANALOG;
@@ -380,9 +395,10 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 			mso_receive_data, sdi);
 */
 
+	sr_session_source_add(sdi->session, -1, 0, 100, sdl_prepare_data, (struct sr_dev_inst *)sdi);
+
 	std_session_send_df_header(sdi);
 
-	sr_session_source_add(sdi->session, -1, 0, 100, sdl_prepare_data, (struct sr_dev_inst *)sdi);
 
 
 	return SR_OK;
