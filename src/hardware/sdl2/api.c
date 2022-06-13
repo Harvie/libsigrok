@@ -73,6 +73,7 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
 {
 	(void)options;
 
+        GSList *devices = NULL;
         struct dev_context *devc;
         struct sr_dev_inst *sdi;
         struct sr_channel *ch;
@@ -90,15 +91,23 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
         limit_frames = DEFAULT_LIMIT_FRAMES;
 */
 
+        int dev_i, dev_count = SDL_GetNumAudioDevices(0);
+	SDL_AudioSpec dev_spec;
+      for (dev_i = 0; dev_i < dev_count; ++dev_i) {
+                //printf("Audio device %d: %s\n", i, SDL_GetAudioDeviceName(i, 0));
+
+		if(SDL_GetAudioDeviceSpec(dev_i, 1, &dev_spec)) continue;
 
 	//Create device instance
         sdi = g_malloc0(sizeof(struct sr_dev_inst));
         sdi->status = SR_ST_INACTIVE;
-        sdi->model = g_strdup("SDL2 Soundcard");
+        sdi->model = g_strdup_printf("SDL2 Soundcard %d (%d x %d Hz): %s", dev_i, dev_spec.channels, dev_spec.freq, SDL_GetAudioDeviceName(dev_i, 0));
+	devices = g_slist_append(devices, sdi);
 
 	//Put driver specific data to driver instance
         devc = g_malloc0(sizeof(struct dev_context));
-        devc->cur_samplerate = SR_KHZ(200);
+	devc->sdl_device_index = dev_i;
+        devc->cur_samplerate = SR_HZ(dev_spec.freq);
         sdi->priv = devc;
 
         //Create analog channel group
@@ -106,16 +115,17 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
         acg->name = g_strdup("Analog");
         sdi->channel_groups = g_slist_append(sdi->channel_groups, acg);
 
-	//Put new channel to group
-        ch = sr_channel_new(sdi, 1, SR_CHANNEL_ANALOG, TRUE, "channel_name");
-        acg->channels = g_slist_append(acg->channels, ch);
+	int ch_i;
+	for(ch_i=0;ch_i < dev_spec.channels;ch_i++) {
+		//Put new channel to group
+        	ch = sr_channel_new(sdi, ch_i, SR_CHANNEL_ANALOG, TRUE, "A");
+        	acg->channels = g_slist_append(acg->channels, ch);
+	}
 
-	//one more channel
-        ch = sr_channel_new(sdi, 2, SR_CHANNEL_ANALOG, TRUE, "another_ch");
-        acg->channels = g_slist_append(acg->channels, ch);
+      }
 
 
-        return std_scan_complete(di, g_slist_append(NULL, sdi));
+        return std_scan_complete(di, devices);
 
 
 
@@ -131,6 +141,11 @@ static int dev_open(struct sr_dev_inst *sdi)
 	struct dev_context *devc;
 
 	devc = sdi->priv;
+
+	//Check if SDL device is still available
+	SDL_AudioSpec dev_spec;
+	if(SDL_GetAudioDeviceSpec(devc->sdl_device_index, 1, &dev_spec)) return SR_ERR;
+
 
 	//if (serial_open(devc->serial, SERIAL_RDWR) != SR_OK)
 	//	return SR_ERR;
@@ -246,6 +261,63 @@ static int config_list(int key, GVariant **data,
 	return SR_OK;
 }
 
+SR_PRIV int sdl_prepare_data(int fd, int revents, void *cb_data) {
+	struct sr_dev_inst *sdi;
+        struct dev_context *devc;
+        struct sr_datafeed_packet packet;
+        struct sr_datafeed_analog packet_analog;
+
+	struct sr_analog_encoding  	encoding;
+	struct sr_analog_meaning  	meaning;
+	struct sr_analog_spec  	spec;
+
+	struct sr_rational r_scale, r_offset;
+	r_scale.p = 1;
+	r_scale.q = 1;
+	r_offset.p = 0;
+	r_offset.q = 1;
+
+
+	sdi = cb_data;
+	devc = sdi->priv;
+
+	struct sr_channel_group *lastcg = g_slist_last(sdi->channel_groups);
+
+	//encoding
+	encoding.unitsize = 1; //???
+	encoding.is_signed = 1;
+	encoding.is_float = 0;
+	encoding.is_bigendian = 0;
+	encoding.digits = 2;
+	encoding.is_digits_decimal = 1;
+	encoding.scale = r_scale;
+	encoding.offset = r_offset;
+	spec.spec_digits= 2;
+
+	//meaning
+        meaning.mq = SR_MQ_VOLTAGE;
+        meaning.unit = SR_UNIT_VOLT;
+        meaning.mqflags = 0;
+	meaning.channels = lastcg->channels;
+
+	//data
+	char data[1024]={6,6,6,6,6,6,6,6,6,6,6,6,6};
+	packet_analog.data = data;
+	packet_analog.num_samples=1;
+	packet_analog.encoding = &encoding;
+	packet_analog.meaning = &meaning;
+	packet_analog.spec = &spec;
+
+	//packet
+        packet.type = SR_DF_ANALOG;
+        packet.payload = &packet_analog;
+
+        sr_session_send(sdi, &packet);
+
+	return G_SOURCE_CONTINUE;
+	//return SR_OK;
+}
+
 static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 {
 	struct dev_context *devc;
@@ -253,17 +325,19 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 
 	devc = sdi->priv;
 
+/*
+
 	if (mso_configure_channels(sdi) != SR_OK) {
 		sr_err("Failed to configure channels.");
 		return SR_ERR;
 	}
 
-	/* FIXME: No need to do full reconfigure every time */
+	// FIXME: No need to do full reconfigure every time
 //      ret = mso_reset_fsm(sdi);
 //      if (ret != SR_OK)
 //              return ret;
 
-	/* FIXME: ACDC Mode */
+	// FIXME: ACDC Mode
 	devc->ctlbase1 &= 0x7f;
 //      devc->ctlbase1 |= devc->acdcmode;
 
@@ -271,7 +345,7 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 	if (ret != SR_OK)
 		return ret;
 
-	/* set dac offset */
+	// set dac offset
 	ret = mso_dac_out(sdi, devc->dac_offset);
 	if (ret != SR_OK)
 		return ret;
@@ -284,27 +358,32 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 	//if (ret != SR_OK)
 	//	return ret;
 
-	/* END of config hardware part */
+	// END of config hardware part
 	ret = mso_arm(sdi);
 	if (ret != SR_OK)
 		return ret;
 
-	/* Start acquisition on the device. */
+	// Start acquisition on the device
 	//mso_check_trigger(devc->serial, &devc->trigger_state);
 	//ret = mso_check_trigger(devc->serial, NULL);
 	//if (ret != SR_OK)
 	//	return ret;
 
-	/* Reset trigger state. */
+	// Reset trigger state.
 	//devc->trigger_state = 0x00;
 
 	std_session_send_df_header(sdi);
 
-	/* Our first channel is analog, the other 8 are of type 'logic'. */
-	/* TODO. */
+	// Our first channel is analog, the other 8 are of type 'logic'.
 
 	serial_source_add(sdi->session, devc->serial, G_IO_IN, -1,
 			mso_receive_data, sdi);
+*/
+
+	std_session_send_df_header(sdi);
+
+	sr_session_source_add(sdi->session, -1, 0, 100, sdl_prepare_data, (struct sr_dev_inst *)sdi);
+
 
 	return SR_OK;
 }
@@ -335,7 +414,7 @@ static struct sr_dev_driver sdl2_driver_info = {
 
 	//open
 	.dev_open = dev_open,
-	.dev_close = std_serial_dev_close,
+	.dev_close = std_dummy_dev_close,
 
 	//acq
 	.dev_acquisition_start = dev_acquisition_start,

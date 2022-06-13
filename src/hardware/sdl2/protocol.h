@@ -85,6 +85,8 @@ struct mso_prototrig {
 };
 
 struct dev_context {
+	int sdl_device_index;
+
 	const struct fx2lafw_profile *profile;
 	GSList *enabled_analog_channels;
 	/*
