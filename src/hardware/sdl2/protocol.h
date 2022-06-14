@@ -32,10 +32,9 @@
 
 #define LOG_PREFIX "sdl2-audio-interface"
 
-
 struct dev_context {
-	SDL_AudioDeviceID	sdl_device_index;
-	SDL_AudioSpec		sdl_device_spec;
+	SDL_AudioDeviceID sdl_device_index;
+	SDL_AudioSpec	  sdl_device_spec;
 
 	uint64_t cur_samplerate;
 	uint64_t limit_samples;
