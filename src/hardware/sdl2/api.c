@@ -22,14 +22,13 @@
 #include <SDL2/SDL.h>
 
 static const uint32_t drvopts[] = {
-	//SR_CONF_DEMO_DEV,
 	SR_CONF_OSCILLOSCOPE,
 	//SR_CONF_LOGIC_ANALYZER,
 };
 
 static const uint32_t devopts[] = {
 	SR_CONF_LIMIT_SAMPLES | SR_CONF_SET,
-	SR_CONF_SAMPLERATE | SR_CONF_GET, // | SR_CONF_SET | SR_CONF_LIST,
+	SR_CONF_SAMPLERATE | SR_CONF_GET, // | SR_CONF_LIST | SR_CONF_SET,
 /*
 	SR_CONF_TRIGGER_MATCH | SR_CONF_LIST,
 	SR_CONF_TRIGGER_SLOPE | SR_CONF_SET,
@@ -40,21 +39,10 @@ static const uint32_t devopts[] = {
 };
 
 static const char *channel_names[] = {
-	//5.1 Audio: Front-Left, Front-Right, Center, LowFreq, Surround-Left, Surround-Right
-	"FL", "FR", "CE", "LF", "SL", "SR"
+	//Channel names for 7.1 DS Audio:
+	//Front-Left, Front-Right, Center, LowFreq, Surround-Left, Surround-Right, Hearing-Impaired, Visualy-Impaired, etc...
+	"FL", "FR", "CE", "LF", "SL", "SR", "HI", "VI", "CL", "CR", "RSL", "RSR", "CH13", "CH14", "CH15", "CH16", "PLSSTOP", "SRSLY"
 };
-
-/*
-static const uint64_t samplerates[] = {
-	SR_HZ(100),
-	SR_MHZ(200),
-	SR_HZ(100),
-};
-
-static const char *trigger_slopes[2] = {
-	"r", "f",
-};
-*/
 
 static int init(struct sr_dev_driver *di, struct sr_context *sr_ctx) {
 	SDL_Init(SDL_INIT_AUDIO);
@@ -94,7 +82,7 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
 	//Create device instance
         sdi = g_malloc0(sizeof(struct sr_dev_inst));
         sdi->status = SR_ST_INACTIVE;
-        sdi->model = g_strdup_printf("SDL2 Soundcard %d (%d x %d Hz): %s", dev_i, dev_spec.channels, dev_spec.freq, SDL_GetAudioDeviceName(dev_i, 0));
+        sdi->model = g_strdup_printf("[#%d, %dch, %dHz] %s", dev_i, dev_spec.channels, dev_spec.freq, SDL_GetAudioDeviceName(dev_i, 0));
         sdi->priv = devc; //Reference to driver specific data
 	devices = g_slist_append(devices, sdi); //Add device to list
 
@@ -177,8 +165,8 @@ static int config_set(int key, GVariant *data,
 		return mso_configure_rate(sdi, g_variant_get_uint64(data));
 	case SR_CONF_LIMIT_SAMPLES:
 		num_samples = g_variant_get_uint64(data);
+		sr_err("Received config samples: %d", num_samples);
 		devc->limit_samples = num_samples;
-		sr_err("Received config samples: %lu", num_samples);
 		break;
 	case SR_CONF_CAPTURE_RATIO:
 		break;
@@ -208,12 +196,18 @@ static int config_set(int key, GVariant *data,
 static int config_list(int key, GVariant **data,
 	const struct sr_dev_inst *sdi, const struct sr_channel_group *cg)
 {
+        struct dev_context *devc;
+	devc = sdi->priv;
+
+	if(cg) return SR_ERR_NA; //Cannot handle this right now
 
 	switch (key) {
 	case SR_CONF_DEVICE_OPTIONS:
 		return STD_CONFIG_LIST(key, data, sdi, cg, NO_OPTS, drvopts, devopts);
 	case SR_CONF_SAMPLERATE:
 		// *data = std_gvar_samplerates_steps(ARRAY_AND_SIZE(samplerates));
+		// *data = std_gvar_samplerates_steps(&devc->cur_samplerate, 1); //not working
+		return SR_ERR_NA;
 		break;
 	case SR_CONF_TRIGGER_MATCH:
 		// *data = g_variant_new_string(TRIGGER_TYPE);
@@ -221,6 +215,7 @@ static int config_list(int key, GVariant **data,
 	default:
 		return SR_ERR_NA;
 	}
+
 
 	return SR_OK;
 }
@@ -302,7 +297,8 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 	devc = sdi->priv;
 
 	sr_err("Limiting samples to %lu", devc->limit_samples);
-	devc->limit_samples_remaining = devc->limit_samples;
+	//devc->limit_samples_remaining = devc->limit_samples;
+	devc->limit_samples_remaining = 100;
 
 	sr_session_source_add(sdi->session, -1, 0, 100, sdl_data_callback, (struct sr_dev_inst *)sdi);
 
