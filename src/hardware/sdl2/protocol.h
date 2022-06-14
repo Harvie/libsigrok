@@ -35,6 +35,8 @@
 struct dev_context {
 	SDL_AudioDeviceID sdl_device_index;
 	SDL_AudioSpec	  sdl_device_spec;
+	SDL_AudioDeviceID sdl_open_index;
+	SDL_AudioSpec	  sdl_open_spec;
 
 	uint64_t cur_samplerate;
 	uint64_t limit_samples;

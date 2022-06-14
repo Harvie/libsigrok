@@ -23,7 +23,7 @@
 
 static const uint32_t drvopts[] = {
 	SR_CONF_OSCILLOSCOPE,
-	//SR_CONF_LOGIC_ANALYZER,
+	SR_CONF_LOGIC_ANALYZER,
 };
 
 static const uint32_t devopts[] = {
@@ -130,6 +130,7 @@ static int config_get(unsigned int key, GVariant **data, const struct sr_dev_ins
 	devc = sdi->priv;
 
 	switch (key) {
+	case SR_CONF_LIMIT_SAMPLES: *data = g_variant_new_uint64(devc->limit_samples); break;
 	case SR_CONF_SAMPLERATE: *data = g_variant_new_uint64(devc->cur_samplerate); break;
 	default: return SR_ERR_NA;
 	}
@@ -206,6 +207,7 @@ static int config_list(unsigned int key, GVariant **data, const struct sr_dev_in
 	return SR_OK;
 }
 
+static int dev_acquisition_stop(struct sr_dev_inst *sdi);
 int sdl_data_callback(int fd, int revents, void *cb_data);
 int sdl_data_callback(int fd, int revents, void *cb_data)
 {
@@ -231,7 +233,11 @@ int sdl_data_callback(int fd, int revents, void *cb_data)
 	devc = sdi->priv;
 
 	sr_err("Samples: %lu", devc->limit_samples_remaining);
-	if (devc->limit_samples_remaining <= 0) return SR_OK; //Already sent everything
+
+	if (devc->limit_samples_remaining <= 0) { //Already sent everything
+		dev_acquisition_stop(sdi); //TODO: is this really needed???
+		return SR_OK;
+	}
 
 	sr_analog_init(&packet_analog, &encoding, &meaning, &spec, 0);
 
@@ -240,6 +246,7 @@ int sdl_data_callback(int fd, int revents, void *cb_data)
 	//sr_err("NASEL JSEM %s\n", srch->name);
 
 	SDL_AudioFormat sf = AUDIO_S8;
+	sf = devc->sdl_open_spec.format;
 
 	//encoding
 	encoding.unitsize	   = SDL_AUDIO_BITSIZE(sf) / 8; //???
@@ -259,12 +266,22 @@ int sdl_data_callback(int fd, int revents, void *cb_data)
 	meaning.channels = lastcg->channels;
 
 	//data
-	char data[1024]		  = {60, 127, 0, 127, -60, -60, 0, 0};
+	uint8_t data[1024]	  = {60, 127, 0, 127, -60, -60, 0, 0};
 	packet_analog.data	  = data;
 	packet_analog.num_samples = 4;
 	packet_analog.encoding	  = &encoding;
 	packet_analog.meaning	  = &meaning;
 	packet_analog.spec	  = &spec;
+
+	uint32_t recv_bytes = 0;
+	while(!recv_bytes) {
+		recv_bytes = SDL_DequeueAudio(devc->sdl_open_index, data, 1024);
+		SDL_Delay(10);
+	}
+	sr_err("SDL2 received %d bytes!", recv_bytes);
+
+	packet_analog.num_samples =
+		recv_bytes / ((SDL_AUDIO_BITSIZE(sf)/8)*devc->sdl_open_spec.channels);
 
 	//packet
 	packet.type    = SR_DF_ANALOG;
@@ -280,12 +297,24 @@ int sdl_data_callback(int fd, int revents, void *cb_data)
 static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 {
 	struct dev_context *devc;
-
 	devc = sdi->priv;
 
-	sr_err("Limiting samples to %lu", devc->limit_samples);
-	//devc->limit_samples_remaining = devc->limit_samples;
-	devc->limit_samples_remaining = 100; //FIXME
+	devc->limit_samples_remaining = devc->limit_samples;
+	devc->limit_samples_remaining = 100; //FIXME: pulseview should set this!
+	sr_err("Limiting samples to %lu", devc->limit_samples_remaining);
+
+	//Initialize SDL2 recording
+	devc->sdl_device_spec.callback=NULL;
+	//devc->sdl_device_spec.format = AUDIO_S32;
+	devc->sdl_device_spec.samples = 1024/64;
+
+	devc->sdl_open_index = SDL_OpenAudioDevice(SDL_GetAudioDeviceName(devc->sdl_device_index, 1), 1, &devc->sdl_device_spec, &devc->sdl_open_spec, 0);
+	sr_err("Open SDL2 device for capture: %d", devc->sdl_open_index);
+	if(!devc->sdl_open_index) {
+		sr_err("Could not open SDL2 device for capture!");
+		return SR_ERR;
+	}
+	SDL_PauseAudioDevice(devc->sdl_open_index, 0);
 
 	sr_session_source_add(sdi->session, -1, 0, 100, sdl_data_callback, (struct sr_dev_inst *)sdi);
 
@@ -296,7 +325,12 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 
 static int dev_acquisition_stop(struct sr_dev_inst *sdi)
 {
+	struct dev_context *devc;
+	devc = sdi->priv;
+
 	std_session_send_df_end(sdi);
+
+	SDL_CloseAudioDevice(devc->sdl_open_index);
 
 	return SR_OK;
 }
