@@ -224,17 +224,13 @@ int sdl_data_callback(int fd, int revents, void *cb_data)
 	struct sr_analog_spec	  spec;
 
 	struct sr_rational r_scale, r_offset;
-	r_scale.p  = 1;
-	r_scale.q  = 64;
-	r_offset.p = 0;
-	r_offset.q = 1;
 
 	sdi  = cb_data;
 	devc = sdi->priv;
 
 	sr_err("Samples: %lu", devc->limit_samples_remaining);
 
-	if (devc->limit_samples_remaining <= 0) { //Already sent everything
+	if (devc->limit_samples_remaining <= 0 || devc->limit_samples_remaining > 65535) { //Already sent everything
 		dev_acquisition_stop(sdi); //TODO: is this really needed???
 		return SR_OK;
 	}
@@ -255,6 +251,10 @@ int sdl_data_callback(int fd, int revents, void *cb_data)
 	encoding.is_bigendian	   = SDL_AUDIO_ISBIGENDIAN(sf);
 	encoding.digits		   = 2;
 	encoding.is_digits_decimal = 1;
+	r_scale.p  = 1;
+	r_scale.q  = 1<<SDL_AUDIO_BITSIZE(sf); //TODO: calculate properly for all edge cases!
+	r_offset.p = 0;
+	r_offset.q = 1;
 	encoding.scale		   = r_scale;
 	encoding.offset		   = r_offset;
 	spec.spec_digits	   = 2;
@@ -305,7 +305,7 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 
 	//Initialize SDL2 recording
 	devc->sdl_device_spec.callback=NULL;
-	//devc->sdl_device_spec.format = AUDIO_S32;
+	devc->sdl_device_spec.format = AUDIO_S8;
 	devc->sdl_device_spec.samples = 1024/64;
 
 	devc->sdl_open_index = SDL_OpenAudioDevice(SDL_GetAudioDeviceName(devc->sdl_device_index, 1), 1, &devc->sdl_device_spec, &devc->sdl_open_spec, 0);
