@@ -62,9 +62,9 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
         struct dev_context *devc;
         struct sr_dev_inst *sdi;
         struct sr_channel *ch;
-        struct sr_channel_group *cg, *acg;
+        struct sr_channel_group *acg;
 
-	int dev_count = SDL_GetNumAudioDevices(0);
+	SDL_AudioDeviceID	dev_count = SDL_GetNumAudioDevices(0);
         SDL_AudioDeviceID	dev_i;
 	SDL_AudioSpec		dev_spec;
 
@@ -107,7 +107,6 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
 
 static int dev_open(struct sr_dev_inst *sdi)
 {
-	int ret;
 	struct dev_context *devc;
 
 	devc = sdi->priv;
@@ -121,7 +120,7 @@ static int dev_open(struct sr_dev_inst *sdi)
 	return SR_OK;
 }
 
-static int config_get(int key, GVariant **data,
+static int config_get(unsigned int key, GVariant **data,
 	const struct sr_dev_inst *sdi, const struct sr_channel_group *cg)
 {
 	struct dev_context *devc;
@@ -144,13 +143,13 @@ static int config_get(int key, GVariant **data,
 	return SR_OK;
 }
 
-static int config_set(int key, GVariant *data,
+static int config_set(unsigned int key, GVariant *data,
 	const struct sr_dev_inst *sdi, const struct sr_channel_group *cg)
 {
 	struct dev_context *devc;
 	uint64_t num_samples;
-	const char *slope;
-	int trigger_pos;
+	//const char *slope;
+	//int trigger_pos;
 	double pos;
 
 	(void)cg;
@@ -162,10 +161,11 @@ static int config_set(int key, GVariant *data,
 	switch (key) {
 	case SR_CONF_SAMPLERATE:
 		// FIXME
-		return mso_configure_rate(sdi, g_variant_get_uint64(data));
+		//return mso_configure_rate(sdi, g_variant_get_uint64(data));
+		return SR_ERR_NA;
 	case SR_CONF_LIMIT_SAMPLES:
 		num_samples = g_variant_get_uint64(data);
-		sr_err("Received config samples: %d", num_samples);
+		sr_err("Received config samples: %lu", num_samples);
 		devc->limit_samples = num_samples;
 		break;
 	case SR_CONF_CAPTURE_RATIO:
@@ -181,7 +181,7 @@ static int config_set(int key, GVariant *data,
 			sr_err("Trigger position (%f) should be between 0 and 255.", pos);
 			return SR_ERR_ARG;
 		}
-		trigger_pos = (int)pos;
+		//trigger_pos = (int)pos;
 		//devc->trigger_holdoff[0] = trigger_pos & 0xff;
 		break;
 	case SR_CONF_RLE:
@@ -193,11 +193,11 @@ static int config_set(int key, GVariant *data,
 	return SR_OK;
 }
 
-static int config_list(int key, GVariant **data,
+static int config_list(unsigned int key, GVariant **data,
 	const struct sr_dev_inst *sdi, const struct sr_channel_group *cg)
 {
-        struct dev_context *devc;
-	devc = sdi->priv;
+        //struct dev_context *devc;
+	//devc = sdi->priv;
 
 	if(cg) return SR_ERR_NA; //Cannot handle this right now
 
@@ -220,7 +220,10 @@ static int config_list(int key, GVariant **data,
 	return SR_OK;
 }
 
-SR_PRIV int sdl_data_callback(int fd, int revents, void *cb_data) {
+int sdl_data_callback(int fd, int revents, void *cb_data);
+int sdl_data_callback(int fd, int revents, void *cb_data) {
+	(void)fd;
+	(void)revents;
 
 	struct sr_dev_inst *sdi;
         struct dev_context *devc;
@@ -292,7 +295,6 @@ SR_PRIV int sdl_data_callback(int fd, int revents, void *cb_data) {
 static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 {
 	struct dev_context *devc;
-	int ret = SR_ERR;
 
 	devc = sdi->priv;
 
@@ -308,14 +310,12 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 	return SR_OK;
 }
 
-/*
 static int dev_acquisition_stop(struct sr_dev_inst *sdi)
 {
-	stop_acquisition(sdi);
+	std_session_send_df_end(sdi);
 
 	return SR_OK;
 }
-*/
 
 static struct sr_dev_driver sdl2_driver_info = {
 	.name = "sdl2",
@@ -340,7 +340,7 @@ static struct sr_dev_driver sdl2_driver_info = {
 
 	//acq
 	.dev_acquisition_start = dev_acquisition_start,
-	.dev_acquisition_stop = std_session_send_df_end, //dev_acquisition_stop,
+	.dev_acquisition_stop = dev_acquisition_stop,
 
 	//inst
 	.context = NULL,
