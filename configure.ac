@@ -101,6 +101,9 @@ SR_ARG_OPT_PKG([libserialport], [LIBSERIALPORT], ,
 
 SR_ARG_OPT_PKG([libftdi], [LIBFTDI], , [libftdi1 >= 1.0])
 
+
+SR_ARG_OPT_PKG([libsdl2], [LIBSDL], , [sdl2 >= 2.0])
+
 # pkg-config file names: MinGW/MacOSX: hidapi; Linux: hidapi-hidraw/-libusb
 SR_ARG_OPT_PKG([libhidapi], [LIBHIDAPI], ,
 	[hidapi >= 0.8.0], [hidapi-hidraw >= 0.8.0], [hidapi-libusb >= 0.8.0])
